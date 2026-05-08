@@ -153,6 +153,20 @@ input {
   border-left: 1px solid var(--line);
 }
 
+.codebook-panel.has-codebook {
+  gap: var(--space-3);
+  overflow: auto;
+}
+
+.codebook-panel.has-codebook .codebook-upload {
+  gap: var(--space-3);
+}
+
+.codebook-panel.has-codebook .codebook-upload > div:first-child,
+.codebook-panel.has-codebook .codebook-upload .drop-zone {
+  display: none;
+}
+
 .upload-panel,
 .toolbar,
 .document-list-panel,
@@ -479,7 +493,12 @@ h3 {
 .codebook-tree {
   flex: 1 1 auto;
   min-height: 0;
+  scroll-margin-top: var(--space-4);
   overflow: auto;
+}
+
+.codebook-panel.has-codebook .codebook-tree {
+  min-height: 360px;
 }
 
 .tree-heading {
@@ -1009,6 +1028,18 @@ h3 {
     grid-template-columns: 1fr;
   }
 
+  .sidebar {
+    order: 1;
+  }
+
+  .codebook-panel {
+    order: 2;
+  }
+
+  .reader {
+    order: 3;
+  }
+
   .resize-handle {
     display: none;
   }
@@ -1019,7 +1050,7 @@ h3 {
     max-height: none;
     padding: var(--space-5);
     border-bottom: 1px solid var(--line);
-    overflow: auto;
+    overflow: visible;
   }
 
   .sidebar {
@@ -1028,6 +1059,14 @@ h3 {
 
   .codebook-panel {
     border-left: 0;
+  }
+
+  .codebook-tree {
+    flex: 0 1 auto;
+    min-height: 180px;
+    max-height: none;
+    padding-right: 4px;
+    overflow: visible;
   }
 
   .reader {

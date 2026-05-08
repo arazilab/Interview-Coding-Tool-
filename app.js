@@ -34,6 +34,7 @@ const exportFileName = document.querySelector("#exportFileName");
 const loadCodesInput = document.querySelector("#loadCodesInput");
 const loadCodesLabel = document.querySelector("#loadCodesLabel");
 const loadCodesStatus = document.querySelector("#loadCodesStatus");
+const codebookPanel = document.querySelector(".codebook-panel");
 const codebookSummary = document.querySelector("#codebookSummary");
 const codebookTree = document.querySelector("#codebookTree");
 const irrPairCount = document.querySelector("#irrPairCount");
@@ -565,6 +566,7 @@ async function handleCodebookFile(file) {
   }
 
   renderCodebook();
+  revealCodebookContent();
 }
 
 async function handleSavedCodingFile(file) {
@@ -941,6 +943,7 @@ function addHighlightAnnotation(codeKey) {
 
 function renderCodebook() {
   const codebook = state.codebook;
+  codebookPanel?.classList.toggle("has-codebook", Boolean(codebook && !codebook.error));
 
   if (!codebook) {
     codebookSummary.innerHTML = "";
@@ -970,6 +973,15 @@ function renderCodebook() {
     <div class="tree-heading">${escapeHtml(rootColumn)}</div>
     <div class="tree-list">${groups}</div>
   `;
+}
+
+function revealCodebookContent() {
+  if (!codebookPanel) return;
+
+  requestAnimationFrame(() => {
+    const target = state.codebook && !state.codebook.error ? codebookTree : codebookPanel;
+    target.scrollIntoView({ block: "start" });
+  });
 }
 
 function renderCodebookSummary() {
