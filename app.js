@@ -24,7 +24,7 @@ const transcriptPane = document.querySelector("#transcriptPane");
 const highlightStatus = document.querySelector("#highlightStatus");
 const increaseText = document.querySelector("#increaseText");
 const decreaseText = document.querySelector("#decreaseText");
-const appShell = document.querySelector("#appShell");
+const appShell = document.querySelector("[data-resizable-shell]");
 const leftResizer = document.querySelector("#leftResizer");
 const rightResizer = document.querySelector("#rightResizer");
 const codebookInput = document.querySelector("#codebookInput");
@@ -400,6 +400,8 @@ function formatDecimal(value) {
 }
 
 function setupPanelResizer(handle, side) {
+  if (!handle || !appShell) return;
+
   handle.addEventListener("pointerdown", (event) => {
     if (window.matchMedia("(max-width: 860px)").matches) return;
 
