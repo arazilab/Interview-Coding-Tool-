@@ -5,7 +5,7 @@ A local browser dashboard for reading interview transcripts, applying codebook c
 ## Run Locally
 
 ```bash
-npm run dev
+PORT=5173 npm run dev
 ```
 
 Open:
