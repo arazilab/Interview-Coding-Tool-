@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Interview Transcript Dashboard</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js" defer></script>
+    <script src="app.js" defer></script>
+  </head>
+  <body>
+    <div class="app-frame">
+      <nav class="tab-bar" aria-label="Dashboard sections">
+        <button type="button" class="tab-button is-active" data-tab="codingPanel">Code Transcript</button>
+        <button type="button" class="tab-button" data-tab="irrPanel">Calculate IRR</button>
+      </nav>
+
+    <main class="app-shell tab-panel is-active" id="codingPanel">
+      <aside class="sidebar" aria-label="Transcript controls">
+        <section class="upload-panel">
+          <div>
+            <p class="eyebrow">Interview transcripts</p>
+            <h1>Document Reader</h1>
+          </div>
+
+          <label class="drop-zone" for="fileInput" id="dropZone">
+            <input id="fileInput" type="file" accept=".txt,.text,.doc,.docx" multiple>
+            <span class="upload-icon" aria-hidden="true">+</span>
+            <span class="drop-title">Upload files</span>
+            <span class="drop-detail">TXT and DOCX transcripts</span>
+          </label>
+        </section>
+
+        <section class="toolbar" aria-label="Reader tools">
+          <label class="search-field">
+            <span>Search</span>
+            <input id="searchInput" type="search" placeholder="Find words, names, topics">
+          </label>
+
+          <div class="view-controls" role="group" aria-label="Text size">
+            <button type="button" class="icon-button" id="decreaseText" aria-label="Decrease text size">A-</button>
+            <button type="button" class="icon-button" id="increaseText" aria-label="Increase text size">A+</button>
+          </div>
+        </section>
+
+        <section class="document-list-panel">
+          <div class="list-header">
+            <h2>Files</h2>
+            <span id="fileCount">0</span>
+          </div>
+          <ul class="document-list" id="documentList" aria-label="Uploaded transcript files"></ul>
+        </section>
+      </aside>
+
+      <div class="resize-handle left-resizer" id="leftResizer" role="separator" aria-label="Resize transcript sidebar" aria-orientation="vertical" tabindex="0"></div>
+
+      <section class="reader" aria-label="Transcript reader">
+        <header class="reader-header">
+          <div>
+            <p class="eyebrow" id="activeMeta">No document selected</p>
+            <h2 id="activeTitle">Upload a transcript to begin</h2>
+          </div>
+          <div class="reader-stats" id="readerStats" aria-label="Document statistics"></div>
+        </header>
+
+        <article class="transcript-pane" id="transcriptPane" tabindex="0">
+          <div class="empty-state">
+            <h3>Readable transcript workspace</h3>
+            <p>Uploaded files appear in the left rail. Select one to scroll through the transcript in this pane.</p>
+          </div>
+        </article>
+      </section>
+
+      <div class="resize-handle right-resizer" id="rightResizer" role="separator" aria-label="Resize codebook sidebar" aria-orientation="vertical" tabindex="0"></div>
+
+      <aside class="codebook-panel" aria-label="Codebook controls">
+        <section class="codebook-upload">
+          <div>
+            <p class="eyebrow">Codebook</p>
+            <h2>CSV Structure</h2>
+          </div>
+
+          <label class="drop-zone compact" for="codebookInput" id="codebookDropZone">
+            <input id="codebookInput" type="file" accept=".csv,text/csv">
+            <span class="upload-icon" aria-hidden="true">+</span>
+            <span class="drop-title">Upload CSV</span>
+            <span class="drop-detail">First column becomes the parent group</span>
+          </label>
+
+          <div class="export-controls">
+            <label class="export-name-field">
+              <span>Export filename</span>
+              <input id="exportFileName" type="text" placeholder="example-coding-progress">
+            </label>
+            <button type="button" class="save-codes-button" id="saveCodesButton" disabled>Save and Export to JSON</button>
+          </div>
+          <label class="restore-codes-button is-disabled" for="loadCodesInput" id="loadCodesLabel" aria-disabled="true">
+            <input id="loadCodesInput" type="file" accept=".json,application/json" disabled>
+            Upload Saved JSON
+          </label>
+          <span class="file-meta" id="loadCodesStatus">Load a codebook first</span>
+        </section>
+
+        <section class="codebook-summary" id="codebookSummary" aria-live="polite"></section>
+        <section class="codebook-tree" id="codebookTree" aria-label="Codebook hierarchy">
+          <div class="empty-state small">
+            <h3>No codebook loaded</h3>
+            <p>Upload a CSV to browse each column as nested dropdowns.</p>
+          </div>
+        </section>
+      </aside>
+    </main>
+
+      <section class="irr-panel tab-panel" id="irrPanel" aria-label="Calculate IRR">
+        <header class="irr-header">
+          <div>
+            <p class="eyebrow">Reliability</p>
+            <h1>Calculate IRR</h1>
+          </div>
+        </header>
+
+        <div class="irr-workspace">
+          <section class="irr-controls">
+            <label class="select-field">
+              <span>Number of interviews</span>
+              <select id="irrPairCount">
+                <option value="1">1</option>
+                <option value="2">2</option>
+                <option value="3">3</option>
+                <option value="4" selected>4</option>
+                <option value="5">5</option>
+                <option value="6">6</option>
+                <option value="7">7</option>
+                <option value="8">8</option>
+                <option value="9">9</option>
+                <option value="10">10</option>
+              </select>
+            </label>
+          </section>
+
+          <section class="irr-pair-grid" id="irrPairGrid" aria-label="Interview coder JSON uploads">
+          </section>
+
+          <section class="irr-results" id="irrResults">
+            <div class="empty-state small">
+              <h3>Upload two JSON files</h3>
+              <p>IRR will calculate from the exported code values where checked codes are 1 and unchecked codes are 0.</p>
+            </div>
+          </section>
+        </div>
+      </section>
+    </div>
+  </body>
+</html>
