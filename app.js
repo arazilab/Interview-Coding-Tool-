@@ -7,8 +7,11 @@ const state = {
   irrPairCount: 1,
   irrPairs: Array.from({ length: 10 }, () => ({ coderA: null, coderB: null })),
   search: "",
+  codebookSearch: "",
   readerSize: 18,
 };
+
+const codebookColumnNames = new Set(["dimension", "dimensions", "code", "codes", "subcode", "subcodes"]);
 
 const tabButtons = document.querySelectorAll(".tab-button");
 const tabPanels = document.querySelectorAll(".tab-panel");
@@ -36,6 +39,7 @@ const loadCodesLabel = document.querySelector("#loadCodesLabel");
 const loadCodesStatus = document.querySelector("#loadCodesStatus");
 const codebookPanel = document.querySelector(".codebook-panel");
 const codebookSummary = document.querySelector("#codebookSummary");
+const codebookSearchInput = document.querySelector("#codebookSearchInput");
 const codebookTree = document.querySelector("#codebookTree");
 const irrPairCount = document.querySelector("#irrPairCount");
 const irrPairGrid = document.querySelector("#irrPairGrid");
@@ -105,6 +109,11 @@ saveCodesButton.addEventListener("click", () => {
 loadCodesInput.addEventListener("change", (event) => {
   handleSavedCodingFile(event.target.files[0]);
   loadCodesInput.value = "";
+});
+
+codebookSearchInput.addEventListener("input", (event) => {
+  state.codebookSearch = event.target.value.trim().toLowerCase();
+  renderCodebook();
 });
 
 codebookTree.addEventListener("click", (event) => {
@@ -551,6 +560,8 @@ async function handleCodebookFile(file) {
     state.codebook = parseCodebookCsv(text, file.name);
     state.checkedCodes.clear();
     state.annotations = [];
+    state.codebookSearch = "";
+    codebookSearchInput.value = "";
     saveCodesButton.disabled = Boolean(state.codebook.error);
     setSavedCodingImportEnabled(!state.codebook.error);
     loadCodesStatus.textContent = state.codebook.error ? "Load a valid codebook first" : "Upload saved JSON to restore progress";
@@ -625,6 +636,7 @@ function setSavedCodingImportEnabled(enabled) {
 function parseCodebookCsv(text, name) {
   const parsedRows = parseCsv(text);
   const headers = (parsedRows[0] || []).map((header, index) => header.trim() || `Column ${index + 1}`);
+  const displayColumns = getCodebookDisplayColumns(headers);
   const rawRows = parsedRows
     .slice(1)
     .map((row) => normalizeCsvRow(row, headers.length))
@@ -644,10 +656,24 @@ function parseCodebookCsv(text, name) {
   return {
     name,
     headers,
+    displayHeaders: displayColumns.map((column) => column.header),
+    displayColumnIndexes: displayColumns.map((column) => column.index),
     rows,
-    tree: buildCodebookTree(rows, headers),
+    tree: buildCodebookTree(rows, displayColumns),
     error: "",
   };
+}
+
+function getCodebookDisplayColumns(headers) {
+  const columns = headers
+    .map((header, index) => ({ header, index, key: normalizeHeaderName(header) }))
+    .filter((column) => codebookColumnNames.has(column.key));
+
+  return columns.length ? columns : headers.slice(0, 3).map((header, index) => ({ header, index }));
+}
+
+function normalizeHeaderName(header) {
+  return header.toLowerCase().replace(/[^a-z]/g, "");
 }
 
 function parseCsv(text) {
@@ -729,15 +755,15 @@ function inheritMergedCsvCells(rows) {
   });
 }
 
-function buildCodebookTree(rows, headers) {
+function buildCodebookTree(rows, columns) {
   const root = { label: "Codebook", column: "", rows: [], children: new Map() };
 
   rows.forEach((row) => {
     let node = root;
     node.rows.push(row);
 
-    headers.forEach((header, columnIndex) => {
-      const value = (row[columnIndex] || "").trim();
+    columns.forEach(({ header, index }) => {
+      const value = (row[index] || "").trim();
 
       if (!value) {
         return;
@@ -947,6 +973,9 @@ function renderCodebook() {
 
   if (!codebook) {
     codebookSummary.innerHTML = "";
+    codebookSearchInput.disabled = true;
+    codebookSearchInput.value = "";
+    state.codebookSearch = "";
     codebookTree.innerHTML = `
       <div class="empty-state small">
         <h3>No codebook loaded</h3>
@@ -958,20 +987,24 @@ function renderCodebook() {
 
   if (codebook.error) {
     codebookSummary.innerHTML = `<p class="file-meta file-error">${escapeHtml(codebook.name)}</p>`;
+    codebookSearchInput.disabled = true;
     codebookTree.innerHTML = `<div class="notice">${escapeHtml(codebook.error)}</div>`;
     return;
   }
 
+  codebookSearchInput.disabled = false;
   renderCodebookSummary();
 
-  const rootColumn = codebook.headers[0] || "Dimension";
+  const rootColumn = codebook.displayHeaders[0] || "Dimensions";
+  const search = state.codebookSearch;
   const groups = [...codebook.tree.children.values()]
-    .map((node) => renderTreeNode(node, 0))
+    .filter((node) => !search || nodeMatchesTree(node, search))
+    .map((node) => renderTreeNode(node, 0, search))
     .join("");
 
   codebookTree.innerHTML = `
     <div class="tree-heading">${escapeHtml(rootColumn)}</div>
-    <div class="tree-list">${groups}</div>
+    <div class="tree-list">${groups || renderNoCodebookMatches(search)}</div>
   `;
 }
 
@@ -991,10 +1024,10 @@ function renderCodebookSummary() {
   codebookSummary.innerHTML = `
     <div class="codebook-file">
       <span class="file-name">${escapeHtml(codebook.name)}</span>
-      <span class="file-meta">${codebook.rows.length.toLocaleString()} rows • ${codebook.headers.length.toLocaleString()} columns</span>
+      <span class="file-meta">${codebook.rows.length.toLocaleString()} rows • ${codebook.displayHeaders.length.toLocaleString()} displayed columns</span>
       <span class="checked-total">${state.checkedCodes.size.toLocaleString()} checked</span>
     </div>
-    <div class="column-chain">${codebook.headers.map((header) => `<span>${escapeHtml(header)}</span>`).join("")}</div>
+    <div class="column-chain">${codebook.displayHeaders.map((header) => `<span>${escapeHtml(header)}</span>`).join("")}</div>
   `;
 }
 
@@ -1031,15 +1064,18 @@ function downloadCodeJson() {
   URL.revokeObjectURL(url);
 }
 
-function renderTreeNode(node, depth) {
+function renderTreeNode(node, depth, search = "") {
   const childNodes = [...node.children.values()];
+  const nodeMatches = Boolean(search && nodeMatchesQuery(node, search));
+  const visibleChildren = search && !nodeMatches ? childNodes.filter((child) => nodeMatchesTree(child, search)) : childNodes;
   const isLeaf = childNodes.length === 0;
-  const leafContent = isLeaf ? renderLeafRows(node.rows) : childNodes.map((child) => renderTreeNode(child, depth + 1)).join("");
+  const leafContent = isLeaf ? renderLeafRows(node.rows) : visibleChildren.map((child) => renderTreeNode(child, depth + 1, search)).join("");
   const codeKey = encodeCodeKey(node.path || [node.label]);
   const checked = state.checkedCodes.has(codeKey) ? " checked" : "";
+  const open = search || depth <= 1 ? " open" : "";
 
   return `
-    <details class="tree-node depth-${Math.min(depth, 4)}"${depth === 0 ? " open" : ""}>
+    <details class="tree-node depth-${Math.min(depth, 4)}"${open}>
       <summary>
         <label class="check-label" title="Mark this code as appearing in the transcript">
           <input class="code-check" type="checkbox" data-code-key="${escapeHtml(codeKey)}"${checked}>
@@ -1060,14 +1096,31 @@ function renderTreeNode(node, depth) {
   `;
 }
 
+function nodeMatchesTree(node, search) {
+  return nodeMatchesQuery(node, search) || [...node.children.values()].some((child) => nodeMatchesTree(child, search));
+}
+
+function nodeMatchesQuery(node, search) {
+  return [node.label, node.column, ...(node.path || [])].some((value) => value.toLowerCase().includes(search));
+}
+
+function renderNoCodebookMatches(search) {
+  return `
+    <div class="empty-state small">
+      <h3>No matching codes</h3>
+      <p>No dimensions, codes, or subcodes match "${escapeHtml(search)}".</p>
+    </div>
+  `;
+}
+
 function renderLeafRows(rows) {
-  if (!rows.length || !state.codebook?.headers) return "";
+  if (!rows.length || !state.codebook?.displayHeaders) return "";
 
   return rows
     .map((row) => `
       <dl class="codebook-record">
-        ${state.codebook.headers
-          .map((header, index) => ({ header, value: row[index] || "" }))
+        ${state.codebook.displayHeaders
+          .map((header, index) => ({ header, value: row[state.codebook.displayColumnIndexes[index]] || "" }))
           .filter((item) => item.value.trim())
           .map((header, index) => `
             <div>

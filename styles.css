@@ -171,7 +171,8 @@ input {
 .toolbar,
 .document-list-panel,
 .codebook-upload,
-.codebook-summary {
+.codebook-summary,
+.codebook-search-panel {
   flex: 0 0 auto;
 }
 
@@ -307,6 +308,12 @@ h3 {
   background: #fff;
   color: var(--text);
   outline: none;
+}
+
+.search-field input:disabled {
+  background: var(--panel-strong);
+  color: var(--muted);
+  cursor: not-allowed;
 }
 
 .search-field input:focus {
