@@ -633,6 +633,7 @@ function parseSavedAnnotations(savedProgress, validCodes) {
       docName: annotation.docName || "",
       codeKey: annotation.codeKey,
       text: annotation.text,
+      occurrenceIndex: Number.isInteger(annotation.occurrenceIndex) ? annotation.occurrenceIndex : 0,
       createdAt: annotation.createdAt || new Date().toISOString(),
     }));
 }
@@ -936,8 +937,16 @@ function renderReader() {
   }
 
   const docAnnotations = getActiveDocumentAnnotations();
+  const annotationTrackers = docAnnotations
+    .map((annotation) => ({
+      ...annotation,
+      occurrenceIndex: Number.isInteger(annotation.occurrenceIndex) ? annotation.occurrenceIndex : 0,
+      seen: 0,
+      done: false,
+    }))
+    .sort((a, b) => b.text.length - a.text.length);
   const blocks = splitTranscript(doc.text)
-    .map((block) => renderBlock(block, state.search, docAnnotations))
+    .map((block) => renderBlock(block, state.search, annotationTrackers))
     .join("");
 
   transcriptPane.innerHTML = `<div class="transcript">${blocks}</div>`;
@@ -978,12 +987,14 @@ function addHighlightAnnotation(codeKey) {
     return;
   }
 
+  const occurrenceIndex = getSelectedTextOccurrenceIndex(selectedText, selection);
   state.annotations.push({
     id: crypto.randomUUID(),
     docId: doc.id,
     docName: doc.name,
     codeKey,
     text: selectedText,
+    occurrenceIndex,
     createdAt: new Date().toISOString(),
   });
   markCodeChecked(codeKey);
@@ -992,6 +1003,28 @@ function addHighlightAnnotation(codeKey) {
   highlightStatus.textContent = `Highlighted selected text and checked ${codeKey}`;
   renderCodebook();
   renderReader();
+}
+
+function getSelectedTextOccurrenceIndex(selectedText, selection) {
+  const range = selection.getRangeAt(0).cloneRange();
+  const beforeRange = range.cloneRange();
+  beforeRange.selectNodeContents(transcriptPane);
+  beforeRange.setEnd(range.startContainer, range.startOffset);
+
+  return countWholeTextOccurrences(beforeRange.toString(), selectedText);
+}
+
+function countWholeTextOccurrences(text, phrase) {
+  if (!phrase) return 0;
+
+  const pattern = new RegExp(`(^|[^\\p{L}\\p{N}_])(${escapeRegExp(phrase)})(?=$|[^\\p{L}\\p{N}_])`, "gu");
+  let count = 0;
+
+  while (pattern.exec(text)) {
+    count += 1;
+  }
+
+  return count;
 }
 
 function renderCodebook() {
@@ -1078,6 +1111,7 @@ function downloadCodeJson() {
     docName: annotation.docName,
     codeKey: annotation.codeKey,
     text: annotation.text,
+    occurrenceIndex: annotation.occurrenceIndex ?? 0,
     createdAt: annotation.createdAt,
   }));
   const json = JSON.stringify(codeStatus, null, 2);
@@ -1278,12 +1312,23 @@ function renderBlock(block, query, annotations = []) {
 function applyAnnotationHighlights(text, annotations) {
   return annotations
     .filter((annotation) => annotation.text)
-    .sort((a, b) => b.text.length - a.text.length)
     .reduce((html, annotation) => {
-      const escapedText = escapeHtml(annotation.text).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      const pattern = new RegExp(escapedText, "g");
+      if (annotation.done) return html;
+
+      const escapedText = escapeRegExp(escapeHtml(annotation.text));
+      const pattern = new RegExp(`(^|[^\\p{L}\\p{N}_])(${escapedText})(?=$|[^\\p{L}\\p{N}_])`, "gu");
       const title = escapeHtml(annotation.codeKey);
-      return html.replace(pattern, `<mark class="code-highlight" title="${title}">$&</mark>`);
+      return html.replace(pattern, (match, prefix, phrase) => {
+        if (annotation.done) return match;
+
+        if (annotation.seen === annotation.occurrenceIndex) {
+          annotation.done = true;
+          return `${prefix}<mark class="code-highlight" title="${title}">${phrase}</mark>`;
+        }
+
+        annotation.seen += 1;
+        return match;
+      });
     }, text);
 }
 
