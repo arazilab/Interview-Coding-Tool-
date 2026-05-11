@@ -537,6 +537,11 @@ h3 {
   background: #fbfcfd;
 }
 
+.tree-node.is-search-active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(27, 107, 95, 0.16);
+}
+
 .tree-node summary {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -615,6 +620,13 @@ h3 {
 
 .tree-node small {
   line-height: 1.2;
+}
+
+.search-hit {
+  border-radius: 4px;
+  padding: 0 2px;
+  background: #ffe08a;
+  color: #2a2618;
 }
 
 .tree-summary-actions {

@@ -8,6 +8,8 @@ const state = {
   irrPairs: Array.from({ length: 10 }, () => ({ coderA: null, coderB: null })),
   search: "",
   codebookSearch: "",
+  codebookSearchActiveIndex: -1,
+  codebookSearchMatchKeys: [],
   readerSize: 18,
 };
 
@@ -113,7 +115,15 @@ loadCodesInput.addEventListener("change", (event) => {
 
 codebookSearchInput.addEventListener("input", (event) => {
   state.codebookSearch = event.target.value.trim().toLowerCase();
+  state.codebookSearchActiveIndex = -1;
   renderCodebook();
+});
+
+codebookSearchInput.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter") return;
+
+  event.preventDefault();
+  moveCodebookSearchMatch(event.shiftKey ? -1 : 1);
 });
 
 codebookTree.addEventListener("click", (event) => {
@@ -561,6 +571,8 @@ async function handleCodebookFile(file) {
     state.checkedCodes.clear();
     state.annotations = [];
     state.codebookSearch = "";
+    state.codebookSearchActiveIndex = -1;
+    state.codebookSearchMatchKeys = [];
     codebookSearchInput.value = "";
     saveCodesButton.disabled = Boolean(state.codebook.error);
     setSavedCodingImportEnabled(!state.codebook.error);
@@ -961,9 +973,11 @@ function addHighlightAnnotation(codeKey) {
     text: selectedText,
     createdAt: new Date().toISOString(),
   });
+  state.checkedCodes.add(codeKey);
   selection.removeAllRanges();
   highlightStatus.classList.remove("file-error");
-  highlightStatus.textContent = `Highlighted selected text for ${codeKey}`;
+  highlightStatus.textContent = `Highlighted selected text and checked ${codeKey}`;
+  renderCodebook();
   renderReader();
 }
 
@@ -976,6 +990,8 @@ function renderCodebook() {
     codebookSearchInput.disabled = true;
     codebookSearchInput.value = "";
     state.codebookSearch = "";
+    state.codebookSearchActiveIndex = -1;
+    state.codebookSearchMatchKeys = [];
     codebookTree.innerHTML = `
       <div class="empty-state small">
         <h3>No codebook loaded</h3>
@@ -997,6 +1013,10 @@ function renderCodebook() {
 
   const rootColumn = codebook.displayHeaders[0] || "Dimensions";
   const search = state.codebookSearch;
+  state.codebookSearchMatchKeys = search ? collectCodebookSearchMatches(codebook.tree, search).map((node) => encodeCodeKey(node.path || [node.label])) : [];
+  if (state.codebookSearchActiveIndex >= state.codebookSearchMatchKeys.length) {
+    state.codebookSearchActiveIndex = state.codebookSearchMatchKeys.length - 1;
+  }
   const groups = [...codebook.tree.children.values()]
     .filter((node) => !search || nodeMatchesTree(node, search))
     .map((node) => renderTreeNode(node, 0, search))
@@ -1073,16 +1093,20 @@ function renderTreeNode(node, depth, search = "") {
   const codeKey = encodeCodeKey(node.path || [node.label]);
   const checked = state.checkedCodes.has(codeKey) ? " checked" : "";
   const open = search || depth <= 1 ? " open" : "";
+  const activeKey = state.codebookSearchMatchKeys[state.codebookSearchActiveIndex];
+  const searchClass = nodeMatches ? " is-search-match" : "";
+  const activeClass = search && codeKey === activeKey ? " is-search-active" : "";
+  const searchMatchAttribute = nodeMatches ? ' data-search-match="true"' : "";
 
   return `
-    <details class="tree-node depth-${Math.min(depth, 4)}"${open}>
+    <details class="tree-node depth-${Math.min(depth, 4)}${searchClass}${activeClass}"${searchMatchAttribute}${open}>
       <summary>
         <label class="check-label" title="Mark this code as appearing in the transcript">
           <input class="code-check" type="checkbox" data-code-key="${escapeHtml(codeKey)}"${checked}>
           <span class="checkmark" aria-hidden="true"></span>
           <span class="code-label-text">
-            <strong>${escapeHtml(node.label)}</strong>
-            <small>${escapeHtml(node.column)}</small>
+            <strong>${highlightSearchMatch(node.label, search)}</strong>
+            <small>${highlightSearchMatch(node.column, search)}</small>
           </span>
         </label>
         <span class="tree-summary-actions">
@@ -1102,6 +1126,44 @@ function nodeMatchesTree(node, search) {
 
 function nodeMatchesQuery(node, search) {
   return [node.label, node.column, ...(node.path || [])].some((value) => value.toLowerCase().includes(search));
+}
+
+function collectCodebookSearchMatches(node, search, matches = []) {
+  node.children.forEach((child) => {
+    if (nodeMatchesQuery(child, search)) {
+      matches.push(child);
+    }
+    collectCodebookSearchMatches(child, search, matches);
+  });
+
+  return matches;
+}
+
+function moveCodebookSearchMatch(direction) {
+  if (!state.codebook || !state.codebookSearch) return;
+
+  const matches = collectCodebookSearchMatches(state.codebook.tree, state.codebookSearch);
+  state.codebookSearchMatchKeys = matches.map((node) => encodeCodeKey(node.path || [node.label]));
+  if (!state.codebookSearchMatchKeys.length) return;
+
+  const currentIndex = state.codebookSearchActiveIndex < 0 ? (direction > 0 ? -1 : 0) : state.codebookSearchActiveIndex;
+  state.codebookSearchActiveIndex = (currentIndex + direction + state.codebookSearchMatchKeys.length) % state.codebookSearchMatchKeys.length;
+  renderCodebook();
+  scrollActiveCodebookSearchMatch();
+}
+
+function scrollActiveCodebookSearchMatch() {
+  requestAnimationFrame(() => {
+    codebookTree.querySelector(".tree-node.is-search-active")?.scrollIntoView({ block: "center" });
+  });
+}
+
+function highlightSearchMatch(value, search) {
+  const escapedValue = escapeHtml(value);
+  if (!search) return escapedValue;
+
+  const pattern = new RegExp(escapeRegExp(search), "gi");
+  return escapedValue.replace(pattern, (match) => `<mark class="search-hit">${match}</mark>`);
 }
 
 function renderNoCodebookMatches(search) {
@@ -1203,9 +1265,13 @@ function applyAnnotationHighlights(text, annotations) {
 function highlight(text, query) {
   if (!query) return text;
 
-  const escapedQuery = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const escapedQuery = escapeRegExp(query);
   const pattern = new RegExp(`(${escapedQuery})`, "gi");
   return text.replace(pattern, '<mark class="highlight">$1</mark>');
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function escapeHtml(value) {
