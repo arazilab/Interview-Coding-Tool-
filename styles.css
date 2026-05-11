@@ -565,6 +565,10 @@ h3 {
   min-width: 0;
 }
 
+.check-label.is-static {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .code-check {
   position: absolute;
   inline-size: 1px;

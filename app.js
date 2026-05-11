@@ -138,6 +138,7 @@ codebookTree.addEventListener("click", (event) => {
   const checkLabel = event.target.closest(".check-label");
   if (!checkLabel) return;
   const checkbox = checkLabel.querySelector(".code-check");
+  if (!checkbox) return;
 
   event.preventDefault();
   event.stopPropagation();
@@ -819,12 +820,24 @@ function toggleCodeCheck(key, checked) {
   if (!key) return;
 
   if (checked) {
-    state.checkedCodes.add(key);
+    markCodeChecked(key);
   } else {
     state.checkedCodes.delete(key);
   }
 
-  renderCodebookSummary();
+  renderCodebook();
+}
+
+function markCodeChecked(key) {
+  state.checkedCodes.add(key);
+  getParentCodeKeys(key).forEach((parentKey) => state.checkedCodes.add(parentKey));
+}
+
+function getParentCodeKeys(key) {
+  const parts = key.split(" > ");
+  if (parts.length <= 2) return [];
+
+  return Array.from({ length: parts.length - 2 }, (_, index) => parts.slice(0, index + 2).join(" > "));
 }
 
 function sortTree(node) {
@@ -973,7 +986,7 @@ function addHighlightAnnotation(codeKey) {
     text: selectedText,
     createdAt: new Date().toISOString(),
   });
-  state.checkedCodes.add(codeKey);
+  markCodeChecked(codeKey);
   selection.removeAllRanges();
   highlightStatus.classList.remove("file-error");
   highlightStatus.textContent = `Highlighted selected text and checked ${codeKey}`;
@@ -1097,18 +1110,30 @@ function renderTreeNode(node, depth, search = "") {
   const searchClass = nodeMatches ? " is-search-match" : "";
   const activeClass = search && codeKey === activeKey ? " is-search-active" : "";
   const searchMatchAttribute = nodeMatches ? ' data-search-match="true"' : "";
+  const labelMarkup = depth === 0
+    ? `
+          <span class="check-label is-static">
+            <span class="code-label-text">
+              <strong>${highlightSearchMatch(node.label, search)}</strong>
+              <small>${highlightSearchMatch(node.column, search)}</small>
+            </span>
+          </span>
+        `
+    : `
+          <label class="check-label" title="Mark this code as appearing in the transcript">
+            <input class="code-check" type="checkbox" data-code-key="${escapeHtml(codeKey)}"${checked}>
+            <span class="checkmark" aria-hidden="true"></span>
+            <span class="code-label-text">
+              <strong>${highlightSearchMatch(node.label, search)}</strong>
+              <small>${highlightSearchMatch(node.column, search)}</small>
+            </span>
+          </label>
+        `;
 
   return `
     <details class="tree-node depth-${Math.min(depth, 4)}${searchClass}${activeClass}"${searchMatchAttribute}${open}>
       <summary>
-        <label class="check-label" title="Mark this code as appearing in the transcript">
-          <input class="code-check" type="checkbox" data-code-key="${escapeHtml(codeKey)}"${checked}>
-          <span class="checkmark" aria-hidden="true"></span>
-          <span class="code-label-text">
-            <strong>${highlightSearchMatch(node.label, search)}</strong>
-            <small>${highlightSearchMatch(node.column, search)}</small>
-          </span>
-        </label>
+        ${labelMarkup}
         <span class="tree-summary-actions">
           <button type="button" class="code-highlight-button" data-code-key="${escapeHtml(codeKey)}" title="Attach selected transcript text to this code">Highlight</button>
           <em>${node.rows.length.toLocaleString()}</em>
