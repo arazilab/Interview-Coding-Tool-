@@ -161,6 +161,23 @@ decreaseText.addEventListener("click", () => {
   document.documentElement.style.setProperty("--reader-size", `${state.readerSize}px`);
 });
 
+transcriptPane.addEventListener("click", (event) => {
+  const highlight = event.target.closest(".code-highlight");
+  if (!highlight) return;
+
+  removeHighlightAnnotation(highlight.dataset.annotationId);
+});
+
+transcriptPane.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" && event.key !== " ") return;
+
+  const highlight = event.target.closest(".code-highlight");
+  if (!highlight) return;
+
+  event.preventDefault();
+  removeHighlightAnnotation(highlight.dataset.annotationId);
+});
+
 irrPairCount.addEventListener("change", (event) => {
   state.irrPairCount = Number(event.target.value);
   renderIrrPairs();
@@ -834,6 +851,18 @@ function markCodeChecked(key) {
   getParentCodeKeys(key).forEach((parentKey) => state.checkedCodes.add(parentKey));
 }
 
+function unmarkCodeChecked(key) {
+  state.checkedCodes.delete(key);
+
+  getParentCodeKeys(key)
+    .filter((parentKey) => !hasCheckedChildCode(parentKey))
+    .forEach((parentKey) => state.checkedCodes.delete(parentKey));
+}
+
+function hasCheckedChildCode(parentKey) {
+  return [...state.checkedCodes].some((checkedKey) => checkedKey.startsWith(`${parentKey} > `));
+}
+
 function getParentCodeKeys(key) {
   const parts = key.split(" > ");
   if (parts.length <= 2) return [];
@@ -1001,6 +1030,20 @@ function addHighlightAnnotation(codeKey) {
   selection.removeAllRanges();
   highlightStatus.classList.remove("file-error");
   highlightStatus.textContent = `Highlighted selected text and checked ${codeKey}`;
+  renderCodebook();
+  renderReader();
+}
+
+function removeHighlightAnnotation(annotationId) {
+  if (!annotationId) return;
+
+  const annotation = state.annotations.find((item) => item.id === annotationId);
+  if (!annotation) return;
+
+  state.annotations = state.annotations.filter((item) => item.id !== annotationId);
+  unmarkCodeChecked(annotation.codeKey);
+  highlightStatus.classList.remove("file-error");
+  highlightStatus.textContent = `Removed highlight and unchecked ${annotation.codeKey}`;
   renderCodebook();
   renderReader();
 }
@@ -1318,12 +1361,13 @@ function applyAnnotationHighlights(text, annotations) {
       const escapedText = escapeRegExp(escapeHtml(annotation.text));
       const pattern = new RegExp(`(^|[^\\p{L}\\p{N}_])(${escapedText})(?=$|[^\\p{L}\\p{N}_])`, "gu");
       const title = escapeHtml(annotation.codeKey);
+      const annotationId = escapeHtml(annotation.id);
       return html.replace(pattern, (match, prefix, phrase) => {
         if (annotation.done) return match;
 
         if (annotation.seen === annotation.occurrenceIndex) {
           annotation.done = true;
-          return `${prefix}<mark class="code-highlight" title="${title}">${phrase}</mark>`;
+          return `${prefix}<mark class="code-highlight" data-annotation-id="${annotationId}" role="button" tabindex="0" title="Click to unhighlight ${title}">${phrase}</mark>`;
         }
 
         annotation.seen += 1;
