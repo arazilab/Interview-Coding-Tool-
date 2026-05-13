@@ -7,6 +7,7 @@ const state = {
   irrPairCount: 1,
   irrPairs: Array.from({ length: 10 }, () => ({ coderA: null, coderB: null })),
   search: "",
+  searchActiveIndex: -1,
   codebookSearch: "",
   codebookSearchActiveIndex: -1,
   codebookSearchMatchKeys: [],
@@ -148,7 +149,15 @@ codebookTree.addEventListener("click", (event) => {
 
 searchInput.addEventListener("input", (event) => {
   state.search = event.target.value.trim();
+  state.searchActiveIndex = -1;
   renderReader();
+});
+
+searchInput.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter") return;
+
+  event.preventDefault();
+  moveTranscriptSearchMatch(event.shiftKey ? -1 : 1);
 });
 
 increaseText.addEventListener("click", () => {
@@ -974,11 +983,17 @@ function renderReader() {
       done: false,
     }))
     .sort((a, b) => b.text.length - a.text.length);
+  const searchTracker = {
+    query: state.search,
+    seen: 0,
+    activeIndex: state.searchActiveIndex,
+  };
   const blocks = splitTranscript(doc.text)
-    .map((block) => renderBlock(block, state.search, annotationTrackers))
+    .map((block) => renderBlock(block, searchTracker, annotationTrackers))
     .join("");
 
   transcriptPane.innerHTML = `<div class="transcript">${blocks}</div>`;
+  normalizeTranscriptSearchActiveIndex();
   renderHighlightControls();
 }
 
@@ -987,6 +1002,38 @@ function getActiveDocumentAnnotations() {
   if (!doc) return [];
 
   return state.annotations.filter((annotation) => annotation.docId === doc.id || annotation.docName === doc.name);
+}
+
+function moveTranscriptSearchMatch(direction) {
+  if (!state.search) return;
+
+  const matchCount = transcriptPane.querySelectorAll(".highlight").length;
+  if (!matchCount) return;
+
+  const currentIndex = state.searchActiveIndex < 0 ? (direction > 0 ? -1 : 0) : state.searchActiveIndex;
+  state.searchActiveIndex = (currentIndex + direction + matchCount) % matchCount;
+  renderReader();
+  scrollActiveTranscriptSearchMatch();
+}
+
+function normalizeTranscriptSearchActiveIndex() {
+  const matchCount = transcriptPane.querySelectorAll(".highlight").length;
+
+  if (!matchCount) {
+    state.searchActiveIndex = -1;
+    return;
+  }
+
+  if (state.searchActiveIndex >= matchCount) {
+    state.searchActiveIndex = matchCount - 1;
+    renderReader();
+  }
+}
+
+function scrollActiveTranscriptSearchMatch() {
+  requestAnimationFrame(() => {
+    transcriptPane.querySelector(".highlight.is-search-active")?.scrollIntoView({ block: "center" });
+  });
 }
 
 function renderHighlightControls() {
@@ -1341,9 +1388,9 @@ function flushParagraph(lines, blocks) {
   lines.length = 0;
 }
 
-function renderBlock(block, query, annotations = []) {
+function renderBlock(block, searchTracker, annotations = []) {
   const annotatedBody = applyAnnotationHighlights(escapeHtml(block.text), annotations);
-  const body = highlight(annotatedBody, query);
+  const body = highlight(annotatedBody, searchTracker);
 
   if (block.speaker) {
     return `<p class="speaker">${escapeHtml(block.speaker)}</p><p>${body}</p>`;
@@ -1376,12 +1423,16 @@ function applyAnnotationHighlights(text, annotations) {
     }, text);
 }
 
-function highlight(text, query) {
-  if (!query) return text;
+function highlight(text, searchTracker) {
+  if (!searchTracker?.query) return text;
 
-  const escapedQuery = escapeRegExp(query);
+  const escapedQuery = escapeRegExp(searchTracker.query);
   const pattern = new RegExp(`(${escapedQuery})`, "gi");
-  return text.replace(pattern, '<mark class="highlight">$1</mark>');
+  return text.replace(pattern, (match) => {
+    const activeClass = searchTracker.seen === searchTracker.activeIndex ? " is-search-active" : "";
+    searchTracker.seen += 1;
+    return `<mark class="highlight${activeClass}">${match}</mark>`;
+  });
 }
 
 function escapeRegExp(value) {
