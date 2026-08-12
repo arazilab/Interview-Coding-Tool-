@@ -88,10 +88,12 @@ Highlighted excerpts are stored separately in the same file:
 To continue previous work:
 
 1. Load the same codebook CSV.
-2. Click `Upload Saved JSON`.
-3. Select the saved JSON file.
+2. Click `Upload Coded Transcript JSON Files`.
+3. Select one or more saved JSON files.
 
-The app restores checked codes that match the loaded codebook.
+The app merges checked codes and highlighted excerpts from every selected JSON file. Duplicate excerpts are ignored. Codes with saved evidence show a `View` button; click it to open the matching uploaded transcript and scroll to the highlighted excerpt. Repeated clicks cycle through multiple excerpts for that code.
+
+For reviewing completed coding, open the `Review Coded Transcripts` tab. It uses the same transcript and codebook workspace but hides manual highlighting and export controls so the coded JSON evidence is the focus.
 
 If the saved JSON contains highlights, matching highlights are restored as well.
 

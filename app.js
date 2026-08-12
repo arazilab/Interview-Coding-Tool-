@@ -6,11 +6,16 @@ const state = {
   annotations: [],
   irrPairCount: 1,
   irrPairs: Array.from({ length: 10 }, () => ({ coderA: null, coderB: null })),
+  prevalenceFiles: [],
+  prevalenceRows: [],
+  searchDocuments: [],
+  multiSearch: "",
   search: "",
   searchActiveIndex: -1,
   codebookSearch: "",
   codebookSearchActiveIndex: -1,
   codebookSearchMatchKeys: [],
+  evidenceIndexByCode: new Map(),
   readerSize: 18,
 };
 
@@ -47,6 +52,23 @@ const codebookTree = document.querySelector("#codebookTree");
 const irrPairCount = document.querySelector("#irrPairCount");
 const irrPairGrid = document.querySelector("#irrPairGrid");
 const irrResults = document.querySelector("#irrResults");
+const prevalenceFilesInput = document.querySelector("#prevalenceFilesInput");
+const prevalenceDropZone = document.querySelector("#prevalenceDropZone");
+const prevalenceFileStatus = document.querySelector("#prevalenceFileStatus");
+const prevalenceResults = document.querySelector("#prevalenceResults");
+const exportPrevalenceButton = document.querySelector("#exportPrevalenceButton");
+const searchFilesInput = document.querySelector("#searchFilesInput");
+const searchDropZone = document.querySelector("#searchDropZone");
+const searchFileStatus = document.querySelector("#searchFileStatus");
+const multiSearchInput = document.querySelector("#multiSearchInput");
+const searchFileCount = document.querySelector("#searchFileCount");
+const searchDocumentList = document.querySelector("#searchDocumentList");
+const multiSearchResults = document.querySelector("#multiSearchResults");
+const contextDialog = document.querySelector("#contextDialog");
+const contextDialogMeta = document.querySelector("#contextDialogMeta");
+const contextDialogTitle = document.querySelector("#contextDialogTitle");
+const contextDialogBody = document.querySelector("#contextDialogBody");
+const contextCloseButton = document.querySelector("#contextCloseButton");
 
 const panelLimits = {
   left: { min: 260, max: 520 },
@@ -61,7 +83,7 @@ renderHighlightControls();
 
 tabButtons.forEach((button) => {
   button.addEventListener("click", () => {
-    switchTab(button.dataset.tab);
+    switchTab(button.dataset.tab, button);
   });
 });
 
@@ -110,7 +132,7 @@ saveCodesButton.addEventListener("click", () => {
 });
 
 loadCodesInput.addEventListener("change", (event) => {
-  handleSavedCodingFile(event.target.files[0]);
+  handleSavedCodingFiles(event.target.files);
   loadCodesInput.value = "";
 });
 
@@ -128,6 +150,14 @@ codebookSearchInput.addEventListener("keydown", (event) => {
 });
 
 codebookTree.addEventListener("click", (event) => {
+  const evidenceButton = event.target.closest(".code-evidence-button");
+  if (evidenceButton) {
+    event.preventDefault();
+    event.stopPropagation();
+    showCodeEvidence(evidenceButton.dataset.codeKey);
+    return;
+  }
+
   const highlightButton = event.target.closest(".code-highlight-button");
   if (highlightButton) {
     event.preventDefault();
@@ -201,14 +231,87 @@ irrPairGrid.addEventListener("change", (event) => {
   input.value = "";
 });
 
-function switchTab(panelId) {
+prevalenceFilesInput.addEventListener("change", (event) => {
+  handlePrevalenceFiles(event.target.files);
+  prevalenceFilesInput.value = "";
+});
+
+prevalenceDropZone.addEventListener("dragover", (event) => {
+  event.preventDefault();
+  prevalenceDropZone.classList.add("is-dragging");
+});
+
+prevalenceDropZone.addEventListener("dragleave", () => {
+  prevalenceDropZone.classList.remove("is-dragging");
+});
+
+prevalenceDropZone.addEventListener("drop", (event) => {
+  event.preventDefault();
+  prevalenceDropZone.classList.remove("is-dragging");
+  handlePrevalenceFiles(event.dataTransfer.files);
+});
+
+exportPrevalenceButton.addEventListener("click", downloadPrevalenceCsv);
+
+searchFilesInput.addEventListener("change", (event) => {
+  handleSearchFiles(event.target.files);
+  searchFilesInput.value = "";
+});
+
+searchDropZone.addEventListener("dragover", (event) => {
+  event.preventDefault();
+  searchDropZone.classList.add("is-dragging");
+});
+
+searchDropZone.addEventListener("dragleave", () => {
+  searchDropZone.classList.remove("is-dragging");
+});
+
+searchDropZone.addEventListener("drop", (event) => {
+  event.preventDefault();
+  searchDropZone.classList.remove("is-dragging");
+  handleSearchFiles(event.dataTransfer.files);
+});
+
+multiSearchInput.addEventListener("input", (event) => {
+  state.multiSearch = event.target.value.trim();
+  renderMultiSearchResults();
+});
+
+multiSearchResults.addEventListener("click", (event) => {
+  const snippetButton = event.target.closest(".search-snippet-button");
+  if (!snippetButton) return;
+
+  openTranscriptContext(snippetButton.dataset.docId, Number(snippetButton.dataset.matchIndex));
+});
+
+searchDocumentList.addEventListener("click", (event) => {
+  const fileButton = event.target.closest(".search-file-open-button");
+  if (!fileButton) return;
+
+  openFullTranscriptContext(fileButton.dataset.docId);
+});
+
+contextCloseButton.addEventListener("click", () => {
+  contextDialog.close();
+});
+
+contextDialog.addEventListener("click", (event) => {
+  if (event.target === contextDialog) contextDialog.close();
+});
+
+function switchTab(panelId, selectedButton) {
   tabButtons.forEach((button) => {
-    button.classList.toggle("is-active", button.dataset.tab === panelId);
+    button.classList.toggle("is-active", button === selectedButton);
   });
 
   tabPanels.forEach((panel) => {
     panel.classList.toggle("is-active", panel.id === panelId);
   });
+
+  const reviewMode = panelId === "codingPanel" && selectedButton?.dataset.workspaceMode === "review";
+  appShell.classList.toggle("is-review-mode", reviewMode);
+  appShell.setAttribute("data-workspace-mode", reviewMode ? "review" : "coding");
 }
 
 async function handleIrrFile(interviewIndex, coder, file) {
@@ -278,6 +381,306 @@ function normalizeCodeJson(value) {
     codes[codeName] = Number(codeValue) === 1 ? 1 : 0;
     return codes;
   }, {});
+}
+
+async function handlePrevalenceFiles(fileList) {
+  const files = [...fileList];
+  if (!files.length) return;
+
+  const valid = [];
+  const invalid = [];
+  for (const file of files) {
+    try {
+      const parsed = JSON.parse(await file.text());
+      const codes = normalizeCodeJson(parsed);
+      if (!Object.keys(codes).length) throw new Error("No code values found.");
+      const transcriptNamesByCode = new Map();
+      const highlights = Array.isArray(parsed?.__highlights) ? parsed.__highlights : [];
+      highlights.forEach((highlight) => {
+        if (!highlight?.codeKey) return;
+        if (!transcriptNamesByCode.has(highlight.codeKey)) {
+          transcriptNamesByCode.set(highlight.codeKey, new Set());
+        }
+        transcriptNamesByCode.get(highlight.codeKey).add(transcriptNameFromCodedJson(file.name));
+      });
+      valid.push({ name: file.name, codes, transcriptNamesByCode });
+    } catch {
+      invalid.push(file.name);
+    }
+  }
+
+  state.prevalenceFiles = valid;
+  const allCodes = [...new Set(valid.flatMap((file) => Object.keys(file.codes)))];
+  state.prevalenceRows = allCodes.map((code) => {
+    const matchingFiles = valid.filter((file) => file.codes[code] === 1);
+    const transcripts = [...new Set(matchingFiles.flatMap((file) => {
+      const storedNames = [...(file.transcriptNamesByCode.get(code) || [])];
+      return storedNames.length ? storedNames : [transcriptNameFromCodedJson(file.name)];
+    }))].sort((a, b) => a.localeCompare(b));
+    const count = matchingFiles.length;
+    return { code, count, transcripts, prevalence: valid.length ? count / valid.length : 0 };
+  }).sort((a, b) => b.prevalence - a.prevalence || a.code.localeCompare(b.code));
+
+  prevalenceFileStatus.textContent = invalid.length
+    ? `${valid.length} loaded · ${invalid.length} invalid`
+    : `${valid.length} interview${valid.length === 1 ? "" : "s"} loaded`;
+  prevalenceFileStatus.classList.toggle("file-error", !valid.length);
+  exportPrevalenceButton.disabled = !valid.length;
+  renderPrevalenceResults();
+}
+
+function renderPrevalenceResults() {
+  if (!state.prevalenceFiles.length) {
+    prevalenceResults.innerHTML = `
+      <div class="empty-state small">
+        <h3>No valid coded interviews loaded</h3>
+        <p>Use JSON files exported from the Code Transcript tab.</p>
+      </div>
+    `;
+    return;
+  }
+
+  const observed = state.prevalenceRows.filter((row) => row.count > 0).length;
+  prevalenceResults.innerHTML = `
+    <div class="irr-score-grid">
+      <div class="score-card"><span>Interviews</span><strong>${state.prevalenceFiles.length}</strong></div>
+      <div class="score-card"><span>Unique codes</span><strong>${state.prevalenceRows.length}</strong></div>
+      <div class="score-card"><span>Codes observed</span><strong>${observed}</strong></div>
+    </div>
+    <div class="irr-table-wrap">
+      <table class="irr-table prevalence-table">
+        <thead><tr><th>Code</th><th>Interviews</th><th>Associated transcripts</th><th>Prevalence</th></tr></thead>
+        <tbody>
+          ${state.prevalenceRows.map((row) => `
+            <tr>
+              <td>${escapeHtml(row.code)}</td>
+              <td>${row.count} of ${state.prevalenceFiles.length}</td>
+              <td>
+                ${row.transcripts.length
+                  ? `<details class="transcript-associations">
+                      <summary>${row.transcripts.length} transcript${row.transcripts.length === 1 ? "" : "s"}</summary>
+                      <ul>${row.transcripts.map((name) => `<li>${escapeHtml(name)}</li>`).join("")}</ul>
+                    </details>`
+                  : `<span class="file-meta">None</span>`}
+              </td>
+              <td>
+                <div class="prevalence-value">
+                  <strong>${formatPercent(row.prevalence)}</strong>
+                  <span><i style="width:${row.prevalence * 100}%"></i></span>
+                </div>
+              </td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function downloadPrevalenceCsv() {
+  if (!state.prevalenceRows.length) return;
+  const csvValue = (value) => `"${String(value).replaceAll('"', '""')}"`;
+  const rows = [["Code", "Interview count", "Total interviews", "Associated transcripts", "Prevalence"]]
+    .concat(state.prevalenceRows.map((row) => [
+      row.code,
+      row.count,
+      state.prevalenceFiles.length,
+      row.transcripts.join("; "),
+      formatPercent(row.prevalence),
+    ]));
+  const blob = new Blob([rows.map((row) => row.map(csvValue).join(",")).join("\n")], { type: "text/csv" });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = "code-prevalence.csv";
+  link.click();
+  URL.revokeObjectURL(link.href);
+}
+
+async function handleSearchFiles(fileList) {
+  const files = Array.from(fileList);
+  if (!files.length) return;
+
+  const parsedDocuments = await Promise.all(files.map(parseFile));
+  state.searchDocuments = [...parsedDocuments, ...state.searchDocuments];
+  multiSearchInput.disabled = !state.searchDocuments.some((doc) => doc.text && !doc.error);
+  searchFileStatus.textContent = `${state.searchDocuments.length.toLocaleString()} transcript${state.searchDocuments.length === 1 ? "" : "s"} loaded`;
+  searchFileStatus.classList.remove("file-error");
+  renderSearchDocumentList();
+  renderMultiSearchResults();
+}
+
+function renderSearchDocumentList() {
+  searchFileCount.textContent = state.searchDocuments.length.toLocaleString();
+
+  if (!state.searchDocuments.length) {
+    searchDocumentList.innerHTML = "";
+    return;
+  }
+
+  searchDocumentList.innerHTML = state.searchDocuments
+    .map((doc) => `
+      <li>
+        <${doc.error ? "div" : "button type=\"button\""} class="search-file-card${doc.error ? " has-error" : " search-file-open-button"}"${doc.error ? "" : ` data-doc-id="${escapeHtml(doc.id)}"`}>
+          <span class="file-name">${escapeHtml(doc.name)}</span>
+          <span class="file-meta${doc.error ? " file-error" : ""}">
+            ${doc.error ? escapeHtml(doc.error) : `${doc.type} · ${formatBytes(doc.size)} · ${doc.wordCount.toLocaleString()} words`}
+          </span>
+        </${doc.error ? "div" : "button"}>
+      </li>
+    `)
+    .join("");
+}
+
+function renderMultiSearchResults() {
+  const searchableDocs = state.searchDocuments.filter((doc) => doc.text && !doc.error);
+  const query = state.multiSearch.trim();
+
+  if (!state.searchDocuments.length) {
+    multiSearchResults.innerHTML = `
+      <div class="empty-state small">
+        <h3>No interviews uploaded</h3>
+        <p>Upload multiple transcripts, then search across every file at once.</p>
+      </div>
+    `;
+    return;
+  }
+
+  if (!searchableDocs.length) {
+    multiSearchResults.innerHTML = `
+      <div class="empty-state small">
+        <h3>No readable transcripts</h3>
+        <p>The uploaded files could not be searched. Use TXT or DOCX transcripts.</p>
+      </div>
+    `;
+    return;
+  }
+
+  if (!query) {
+    multiSearchResults.innerHTML = `
+      <div class="multi-search-summary">
+        <div class="score-card"><span>Searchable interviews</span><strong>${searchableDocs.length.toLocaleString()}</strong></div>
+        <div class="score-card"><span>Total words</span><strong>${searchableDocs.reduce((sum, doc) => sum + doc.wordCount, 0).toLocaleString()}</strong></div>
+      </div>
+      <div class="empty-state small">
+        <h3>Enter a search term</h3>
+        <p>Results will be grouped by interview with matching excerpts.</p>
+      </div>
+    `;
+    return;
+  }
+
+  const results = searchableDocs
+    .map((doc) => ({ doc, matches: buildDocumentSearchMatches(doc, query) }))
+    .filter((result) => result.matches.length);
+  const totalMatches = results.reduce((sum, result) => sum + result.matches.length, 0);
+
+  if (!results.length) {
+    multiSearchResults.innerHTML = `
+      <div class="multi-search-summary">
+        <div class="score-card"><span>Searchable interviews</span><strong>${searchableDocs.length.toLocaleString()}</strong></div>
+        <div class="score-card"><span>Matches</span><strong>0</strong></div>
+      </div>
+      <div class="empty-state small">
+        <h3>No matches</h3>
+        <p>No uploaded interviews contain "${escapeHtml(query)}".</p>
+      </div>
+    `;
+    return;
+  }
+
+  multiSearchResults.innerHTML = `
+    <div class="multi-search-summary">
+      <div class="score-card"><span>Interviews with matches</span><strong>${results.length.toLocaleString()}</strong></div>
+      <div class="score-card"><span>Total matches</span><strong>${totalMatches.toLocaleString()}</strong></div>
+      <div class="score-card"><span>Searched interviews</span><strong>${searchableDocs.length.toLocaleString()}</strong></div>
+    </div>
+    <div class="search-results-list">
+      ${results.map((result) => `
+        <article class="search-result-group">
+          <header>
+            <div>
+              <h2>${escapeHtml(result.doc.name)}</h2>
+              <span class="file-meta">${result.doc.type} · ${result.doc.wordCount.toLocaleString()} words</span>
+            </div>
+            <span class="checked-total">${result.matches.length.toLocaleString()} match${result.matches.length === 1 ? "" : "es"}</span>
+          </header>
+          <ol>
+            ${result.matches.slice(0, 25).map((match) => `
+              <li>
+                <button type="button" class="search-snippet-button" data-doc-id="${escapeHtml(result.doc.id)}" data-match-index="${match.index}">
+                  ${match.snippet}
+                </button>
+              </li>
+            `).join("")}
+          </ol>
+          ${result.matches.length > 25 ? `<p class="file-meta">Showing first 25 matches.</p>` : ""}
+        </article>
+      `).join("")}
+    </div>
+  `;
+}
+
+function buildDocumentSearchMatches(doc, query) {
+  const pattern = new RegExp(escapeRegExp(query), "gi");
+  const matches = [];
+  let match;
+
+  while ((match = pattern.exec(doc.text)) && matches.length < 100) {
+    matches.push(renderSearchSnippet(doc.text, match.index, query));
+    if (match.index === pattern.lastIndex) pattern.lastIndex += 1;
+  }
+
+  return matches;
+}
+
+function renderSearchSnippet(text, index, query) {
+  const context = 90;
+  const start = Math.max(0, index - context);
+  const end = Math.min(text.length, index + query.length + context);
+  const prefix = start > 0 ? "..." : "";
+  const suffix = end < text.length ? "..." : "";
+  const snippet = `${prefix}${text.slice(start, end).replace(/\s+/g, " ").trim()}${suffix}`;
+  return {
+    index,
+    snippet: highlight(escapeHtml(snippet), { query, seen: 0, activeIndex: 0 }),
+  };
+}
+
+function openTranscriptContext(docId, matchIndex) {
+  const doc = state.searchDocuments.find((item) => item.id === docId);
+  const query = state.multiSearch.trim();
+
+  if (!doc || !Number.isFinite(matchIndex)) return;
+
+  contextDialogTitle.textContent = doc.name;
+  contextDialogMeta.textContent = `${doc.type} transcript · ${doc.wordCount.toLocaleString()} words`;
+  contextDialogBody.innerHTML = renderTranscriptContext(doc.text, matchIndex, query);
+  contextDialog.showModal();
+}
+
+function openFullTranscriptContext(docId) {
+  const doc = state.searchDocuments.find((item) => item.id === docId);
+  if (!doc) return;
+
+  contextDialogTitle.textContent = doc.name;
+  contextDialogMeta.textContent = `${doc.type} transcript · ${doc.wordCount.toLocaleString()} words`;
+  contextDialogBody.innerHTML = renderFullTranscriptContext(doc.text, state.multiSearch.trim());
+  contextDialog.showModal();
+}
+
+function renderTranscriptContext(text, index, query) {
+  const context = 900;
+  const start = Math.max(0, index - context);
+  const end = Math.min(text.length, index + query.length + context);
+  const prefix = start > 0 ? "..." : "";
+  const suffix = end < text.length ? "..." : "";
+  const excerpt = `${prefix}${text.slice(start, end).trim()}${suffix}`;
+
+  return highlight(escapeHtml(excerpt), { query, seen: 0, activeIndex: 0 }).replace(/\n/g, "<br>");
+}
+
+function renderFullTranscriptContext(text, query) {
+  return highlight(escapeHtml(text.trim()), { query, seen: 0, activeIndex: 0 }).replace(/\n/g, "<br>");
 }
 
 function renderIrrResults() {
@@ -603,7 +1006,7 @@ async function handleCodebookFile(file) {
     codebookSearchInput.value = "";
     saveCodesButton.disabled = Boolean(state.codebook.error);
     setSavedCodingImportEnabled(!state.codebook.error);
-    loadCodesStatus.textContent = state.codebook.error ? "Load a valid codebook first" : "Upload saved JSON to restore progress";
+    loadCodesStatus.textContent = state.codebook.error ? "Load a valid codebook first" : "Upload coded transcript JSON to restore codes and highlights";
     renderHighlightControls();
   } catch (error) {
     state.codebook = {
@@ -619,32 +1022,71 @@ async function handleCodebookFile(file) {
   revealCodebookContent();
 }
 
-async function handleSavedCodingFile(file) {
-  if (!file || !state.codebook || state.codebook.error) return;
+async function handleSavedCodingFiles(fileList) {
+  const files = Array.from(fileList || []);
+  if (!files.length || !state.codebook || state.codebook.error) return;
 
-  try {
-    const contents = await file.text();
-    const savedProgress = JSON.parse(contents);
-    const savedCodes = normalizeCodeJson(savedProgress);
-    const validCodes = new Set(collectCodeEntries(state.codebook.tree).map((code) => code.key));
-    const restoredCodes = Object.entries(savedCodes)
-      .filter(([codeName, value]) => value === 1 && validCodes.has(codeName))
-      .map(([codeName]) => codeName);
+  const validCodes = new Set(collectCodeEntries(state.codebook.tree).map((code) => code.key));
+  const mergedCodes = new Set(state.checkedCodes);
+  const mergedAnnotations = [...state.annotations];
+  const annotationKeys = new Set(mergedAnnotations.map(getAnnotationIdentity));
+  const failedFiles = [];
+  let addedExcerptCount = 0;
 
-    state.checkedCodes = new Set(restoredCodes);
-    state.annotations = parseSavedAnnotations(savedProgress, validCodes);
-    loadCodesStatus.textContent = `Restored ${restoredCodes.length.toLocaleString()} checked codes from ${file.name}`;
-    loadCodesStatus.classList.remove("file-error");
-    renderCodebook();
-    renderReader();
-    renderHighlightControls();
-  } catch (error) {
-    loadCodesStatus.textContent = "Could not read saved JSON";
-    loadCodesStatus.classList.add("file-error");
+  for (const file of files) {
+    try {
+      const contents = await file.text();
+      const savedProgress = JSON.parse(contents);
+      const savedCodes = normalizeCodeJson(savedProgress);
+
+      Object.entries(savedCodes)
+        .filter(([codeName, value]) => value === 1 && validCodes.has(codeName))
+        .forEach(([codeName]) => mergedCodes.add(codeName));
+
+      parseSavedAnnotations(savedProgress, validCodes, file.name).forEach((annotation) => {
+        const identity = getAnnotationIdentity(annotation);
+        if (annotationKeys.has(identity)) return;
+        annotationKeys.add(identity);
+        mergedAnnotations.push(annotation);
+        addedExcerptCount += 1;
+      });
+    } catch (error) {
+      failedFiles.push(file.name);
+    }
   }
+
+  state.checkedCodes = mergedCodes;
+  state.annotations = mergedAnnotations;
+  state.evidenceIndexByCode.clear();
+  const loadedCount = files.length - failedFiles.length;
+  loadCodesStatus.textContent = failedFiles.length
+    ? `Loaded ${loadedCount} of ${files.length} files; could not read: ${failedFiles.join(", ")}`
+    : `Loaded ${loadedCount} coded transcript${loadedCount === 1 ? "" : "s"}; ${mergedCodes.size.toLocaleString()} codes and ${mergedAnnotations.length.toLocaleString()} highlighted excerpts (${addedExcerptCount.toLocaleString()} new)`;
+  loadCodesStatus.classList.toggle("file-error", failedFiles.length > 0);
+  renderCodebook();
+  renderReader();
+  renderHighlightControls();
 }
 
-function parseSavedAnnotations(savedProgress, validCodes) {
+function getAnnotationIdentity(annotation) {
+  return [
+    annotation.docName || annotation.docId || "",
+    annotation.codeKey || "",
+    annotation.text || "",
+    annotation.occurrenceIndex ?? 0,
+  ].join("\u001f");
+}
+
+function transcriptNameFromCodedJson(jsonFilename) {
+  const base = String(jsonFilename)
+    .split(/[\\/]/)
+    .pop()
+    .replace(/\.json$/i, "")
+    .replace(/[-_ ](?:coded|codes|coding[-_ ]?progress)$/i, "");
+  return `${base || "transcript"}.docx`;
+}
+
+function parseSavedAnnotations(savedProgress, validCodes, jsonFilename = "") {
   const highlights = Array.isArray(savedProgress?.__highlights)
     ? savedProgress.__highlights
     : Array.isArray(savedProgress?.highlights)
@@ -656,7 +1098,7 @@ function parseSavedAnnotations(savedProgress, validCodes) {
     .map((annotation) => ({
       id: annotation.id || crypto.randomUUID(),
       docId: annotation.docId || "",
-      docName: annotation.docName || "",
+      docName: jsonFilename ? transcriptNameFromCodedJson(jsonFilename) : annotation.docName || "",
       codeKey: annotation.codeKey,
       text: annotation.text,
       occurrenceIndex: Number.isInteger(annotation.occurrenceIndex) ? annotation.occurrenceIndex : 0,
@@ -1001,7 +1443,31 @@ function getActiveDocumentAnnotations() {
   const doc = state.documents.find((item) => item.id === state.activeId);
   if (!doc) return [];
 
-  return state.annotations.filter((annotation) => annotation.docId === doc.id || annotation.docName === doc.name);
+  return state.annotations.filter((annotation) =>
+    annotation.docId === doc.id || transcriptNamesMatch(annotation.docName, doc.name)
+  );
+}
+
+function transcriptNamesMatch(savedName, uploadedName) {
+  if (!savedName || !uploadedName) return false;
+  const normalizedFilename = (name) => String(name)
+    .split(/[\\/]/)
+    .pop()
+    .replace(/\.[^.]+$/, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
+  if (normalizedFilename(savedName) === normalizedFilename(uploadedName)) return true;
+
+  const interviewNumber = (name) => {
+    const base = String(name).split(/[\\/]/).pop().replace(/\.[^.]+$/, "").toLowerCase();
+    const labeled = base.match(/(?:participant|interviewee|interview|transcript|respondent|case|int|p|r)[\s_-]*(\d+)/i);
+    if (labeled) return Number(labeled[1]);
+    const numericOnly = base.match(/^0*(\d+)$/);
+    return numericOnly ? Number(numericOnly[1]) : null;
+  };
+  const savedInterview = interviewNumber(savedName);
+  const uploadedInterview = interviewNumber(uploadedName);
+  return savedInterview !== null && savedInterview === uploadedInterview;
 }
 
 function moveTranscriptSearchMatch(direction) {
@@ -1093,6 +1559,44 @@ function removeHighlightAnnotation(annotationId) {
   highlightStatus.textContent = `Removed highlight and unchecked ${annotation.codeKey}`;
   renderCodebook();
   renderReader();
+}
+
+function showCodeEvidence(codeKey) {
+  const evidence = state.annotations.filter((annotation) => annotation.codeKey === codeKey);
+  if (!evidence.length) return;
+
+  const previousIndex = state.evidenceIndexByCode.get(codeKey) ?? -1;
+  const index = (previousIndex + 1) % evidence.length;
+  const annotation = evidence[index];
+  const documentMatch = state.documents.find((doc) =>
+    (annotation.docId && doc.id === annotation.docId) ||
+    transcriptNamesMatch(annotation.docName, doc.name)
+  );
+
+  if (!documentMatch) {
+    highlightStatus.textContent = annotation.docName
+      ? `Upload ${annotation.docName} to view this highlighted excerpt.`
+      : "Upload the matching transcript to view this highlighted excerpt.";
+    highlightStatus.classList.add("file-error");
+    return;
+  }
+
+  state.evidenceIndexByCode.set(codeKey, index);
+  state.activeId = documentMatch.id;
+  state.search = "";
+  state.searchActiveIndex = -1;
+  searchInput.value = "";
+  renderDocumentList();
+  renderReader();
+  highlightStatus.classList.remove("file-error");
+  highlightStatus.textContent = `Showing excerpt ${index + 1} of ${evidence.length} for ${codeKey}`;
+
+  requestAnimationFrame(() => {
+    const target = transcriptPane.querySelector(`[data-annotation-id="${CSS.escape(annotation.id)}"]`);
+    target?.classList.add("is-evidence-active");
+    target?.scrollIntoView({ behavior: "smooth", block: "center" });
+    target?.focus({ preventScroll: true });
+  });
 }
 
 function getSelectedTextOccurrenceIndex(selectedText, selection) {
@@ -1229,6 +1733,7 @@ function renderTreeNode(node, depth, search = "") {
   const leafContent = isLeaf ? renderLeafRows(node.rows) : visibleChildren.map((child) => renderTreeNode(child, depth + 1, search)).join("");
   const codeKey = encodeCodeKey(node.path || [node.label]);
   const checked = state.checkedCodes.has(codeKey) ? " checked" : "";
+  const evidenceCount = state.annotations.filter((annotation) => annotation.codeKey === codeKey).length;
   const open = search || depth <= 1 ? " open" : "";
   const activeKey = state.codebookSearchMatchKeys[state.codebookSearchActiveIndex];
   const searchClass = nodeMatches ? " is-search-match" : "";
@@ -1259,6 +1764,7 @@ function renderTreeNode(node, depth, search = "") {
       <summary>
         ${labelMarkup}
         <span class="tree-summary-actions">
+          ${evidenceCount ? `<button type="button" class="code-evidence-button" data-code-key="${escapeHtml(codeKey)}" title="Show this code's highlighted transcript evidence">View ${evidenceCount}</button>` : ""}
           <button type="button" class="code-highlight-button" data-code-key="${escapeHtml(codeKey)}" title="Attach selected transcript text to this code">Highlight</button>
           <em>${node.rows.length.toLocaleString()}</em>
           <span class="chevron" aria-hidden="true"></span>

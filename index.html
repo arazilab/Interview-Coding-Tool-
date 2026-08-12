@@ -12,7 +12,10 @@
     <div class="app-frame">
       <nav class="tab-bar" aria-label="Dashboard sections">
         <button type="button" class="tab-button is-active" data-tab="codingPanel">Code Transcript</button>
+        <button type="button" class="tab-button" data-tab="codingPanel" data-workspace-mode="review">Review Coded Transcripts</button>
+        <button type="button" class="tab-button" data-tab="interviewSearchPanel">Search Interviews</button>
         <button type="button" class="tab-button" data-tab="irrPanel">Calculate IRR</button>
+        <button type="button" class="tab-button" data-tab="prevalencePanel">Code Prevalence</button>
       </nav>
 
     <main class="app-shell tab-panel is-active" id="codingPanel" data-resizable-shell>
@@ -79,6 +82,10 @@
 
       <aside class="codebook-panel" aria-label="Codebook controls">
         <section class="codebook-upload">
+          <div class="review-mode-note" role="status">
+            <strong>Coded transcript review</strong>
+            <span>Upload transcripts, a CSV codebook, and one or more coded JSON files. Use View on a code to open its highlighted evidence.</span>
+          </div>
           <div>
             <p class="eyebrow">Codebook</p>
             <h2>CSV Structure</h2>
@@ -99,8 +106,8 @@
             <button type="button" class="save-codes-button" id="saveCodesButton" disabled>Save and Export to JSON</button>
           </div>
           <label class="restore-codes-button is-disabled" for="loadCodesInput" id="loadCodesLabel" aria-disabled="true">
-            <input id="loadCodesInput" type="file" accept=".json,application/json" disabled>
-            Upload Saved JSON
+            <input id="loadCodesInput" type="file" accept=".json,application/json" multiple disabled>
+            Upload Coded Transcript JSON Files
           </label>
           <span class="file-meta" id="loadCodesStatus">Load a codebook first</span>
         </section>
@@ -120,6 +127,59 @@
         </section>
       </aside>
     </main>
+
+      <section class="interview-search-panel tab-panel" id="interviewSearchPanel" aria-label="Search interview transcripts">
+        <header class="irr-header">
+          <div>
+            <p class="eyebrow">Transcript discovery</p>
+            <h1>Search Interviews</h1>
+          </div>
+        </header>
+
+        <div class="interview-search-workspace">
+          <aside class="search-upload-panel" aria-label="Interview search controls">
+            <label class="drop-zone" for="searchFilesInput" id="searchDropZone">
+              <input id="searchFilesInput" type="file" accept=".txt,.text,.doc,.docx" multiple>
+              <span class="upload-icon" aria-hidden="true">+</span>
+              <span class="drop-title">Upload transcripts</span>
+              <span class="drop-detail" id="searchFileStatus">TXT and DOCX interviews</span>
+            </label>
+
+            <label class="search-field">
+              <span>Search all interviews</span>
+              <input id="multiSearchInput" type="search" placeholder="Find words, names, topics" disabled>
+            </label>
+
+            <section class="document-list-panel">
+              <div class="list-header">
+                <h2>Uploaded interviews</h2>
+                <span id="searchFileCount">0</span>
+              </div>
+              <ul class="document-list search-document-list" id="searchDocumentList" aria-label="Searchable interview files"></ul>
+            </section>
+          </aside>
+
+          <section class="multi-search-results" id="multiSearchResults" aria-live="polite">
+            <div class="empty-state small">
+              <h3>No interviews uploaded</h3>
+              <p>Upload multiple transcripts, then search across every file at once.</p>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <dialog class="context-dialog" id="contextDialog" aria-labelledby="contextDialogTitle">
+        <div class="context-dialog-card">
+          <header class="context-dialog-header">
+            <div>
+              <p class="eyebrow" id="contextDialogMeta">Transcript context</p>
+              <h2 id="contextDialogTitle">Interview excerpt</h2>
+            </div>
+            <button type="button" class="icon-button context-close-button" id="contextCloseButton" aria-label="Close context">x</button>
+          </header>
+          <article class="context-dialog-body" id="contextDialogBody"></article>
+        </div>
+      </dialog>
 
       <section class="irr-panel tab-panel" id="irrPanel" aria-label="Calculate IRR">
         <header class="irr-header">
@@ -155,6 +215,33 @@
             <div class="empty-state small">
               <h3>Upload two JSON files</h3>
               <p>IRR will calculate from the exported code values where checked codes are 1 and unchecked codes are 0.</p>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section class="prevalence-panel tab-panel" id="prevalencePanel" aria-label="Code prevalence">
+        <header class="irr-header">
+          <div>
+            <p class="eyebrow">Cross-interview analysis</p>
+            <h1>Code Prevalence</h1>
+            <p class="file-meta">Upload coded JSON exports to see how often each code appears across interviews.</p>
+          </div>
+          <button type="button" class="save-codes-button" id="exportPrevalenceButton" disabled>Export CSV</button>
+        </header>
+
+        <div class="prevalence-workspace">
+          <label class="drop-zone prevalence-drop" for="prevalenceFilesInput" id="prevalenceDropZone">
+            <input id="prevalenceFilesInput" type="file" accept=".json,application/json" multiple>
+            <span class="upload-icon" aria-hidden="true">+</span>
+            <span class="drop-title">Upload coded JSON files</span>
+            <span class="drop-detail" id="prevalenceFileStatus">Select all interviews to compare</span>
+          </label>
+
+          <section class="prevalence-results" id="prevalenceResults">
+            <div class="empty-state small">
+              <h3>No coded interviews loaded</h3>
+              <p>Prevalence is the percentage of uploaded interviews where a code is marked 1.</p>
             </div>
           </section>
         </div>
